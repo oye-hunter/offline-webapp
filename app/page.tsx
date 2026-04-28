@@ -1,65 +1,118 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+import { localDB } from "@/lib/db/dexie";
+import { cryptoKey } from "@/lib/auth/cryptoSession";
+import { decryptField } from "@/lib/crypto/decrypt";
+import { encryptField } from "@/lib/crypto/encrypt";
+
+type DecryptedNote = {
+  id: string;
+  title: string;
+  updatedAt: number;
+};
+
+export default function HomePage() {
+  const router = useRouter();
+  const [notes, setNotes] = useState<DecryptedNote[]>([]);
+  const [isReady, setIsReady] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!cryptoKey) {
+      setIsReady(true);
+      return;
+    }
+
+    const key = cryptoKey;
+
+    localDB.notes
+      .orderBy("updatedAt")
+      .reverse()
+      .toArray()
+      .then(async (rawNotes) => {
+        const decrypted = await Promise.all(
+          rawNotes.map(async (note) => ({
+            id: note.id,
+            title: await decryptField(note.encryptedTitle, key),
+            updatedAt: note.updatedAt,
+          })),
+        );
+        setNotes(decrypted);
+        setIsReady(true);
+      })
+      .catch(() => {
+        setIsReady(true);
+      });
+  }, []);
+
+  async function handleNewNote() {
+    if (!cryptoKey) return;
+
+    const id = crypto.randomUUID();
+    const encryptedTitle = await encryptField("", cryptoKey);
+    const encryptedContent = await encryptField("", cryptoKey);
+
+    await localDB.notes.put({
+      id,
+      encryptedTitle,
+      encryptedContent,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      syncStatus: "pending",
+    });
+
+    router.push(`/notes/${id}`);
+  }
+
+  if (!isReady) {
+    return null;
+  }
+
+  if (!cryptoKey) {
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-gray-500">
+          Unlock the app to view your notes.
+        </p>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <main className="mx-auto max-w-2xl px-4 py-8">
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Notes</h1>
+        <button
+          onClick={handleNewNote}
+          className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+        >
+          New Note
+        </button>
+      </div>
+
+      {notes.length === 0 ? (
+        <p className="text-center text-sm text-gray-500">
+          No notes yet. Create one!
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {notes.map((note) => (
+            <Link
+              key={note.id}
+              href={`/notes/${note.id}`}
+              className="rounded-lg border p-4 shadow-sm transition-shadow hover:shadow-md"
+            >
+              <p className="font-medium">{note.title || "Untitled"}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {new Date(note.updatedAt).toLocaleString()}
+              </p>
+            </Link>
+          ))}
+        </div>
+      )}
+    </main>
   );
 }
