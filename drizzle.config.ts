@@ -1,12 +1,16 @@
 import { defineConfig } from "drizzle-kit";
 
-export default defineConfig({
+const databaseUrl = process.env.DATABASE_URL_UNPOOLED;
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL_UNPOOLED is required for Drizzle config.");
+}
+
+export const drizzleConfig = defineConfig({
   dialect: "postgresql",
-  schema: "./lib/schema/*.ts",
+  schema: "./lib/schema/notes.ts",
   out: "./drizzle",
   dbCredentials: {
-    url: process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL ?? "",
+    url: databaseUrl,
   },
-  verbose: true,
-  strict: true,
 });

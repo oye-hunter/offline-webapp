@@ -1,46 +1,44 @@
 import Dexie, { type Table } from "dexie";
 
-export type SyncStatus = "pending" | "synced";
-
-export type EncryptedBlob = {
+export interface EncryptedBlob {
   iv: string;
   data: string;
-};
+}
 
-export type NoteRecord = {
+export interface LocalNote {
   id: string;
   encryptedTitle: EncryptedBlob;
   encryptedContent: EncryptedBlob;
   createdAt: number;
   updatedAt: number;
-  syncStatus: SyncStatus;
-};
+  syncStatus: "pending" | "synced";
+}
 
-export type WrappedKeyRecord = {
-  id: "wrapped-crypto-key";
+export interface WrappedKeyRecord {
+  id: string;
   wrappedKey: string;
   salt: string;
-};
+}
 
-export type OfflineSessionRecord = {
-  id: "offline-session";
+export interface OfflineSessionRecord {
+  id: string;
   encryptedData: EncryptedBlob;
-};
+}
 
-export class OfflinePwaDexie extends Dexie {
-  notes!: Table<NoteRecord, string>;
-  wrappedKeys!: Table<WrappedKeyRecord, "wrapped-crypto-key">;
-  offlineSessions!: Table<OfflineSessionRecord, "offline-session">;
+export class NotesDB extends Dexie {
+  notes!: Table<LocalNote>;
+  wrappedKey!: Table<WrappedKeyRecord>;
+  offlineSession!: Table<OfflineSessionRecord>;
 
   public constructor() {
-    super("offline-pwa-db");
+    super("NotesDB");
 
     this.version(1).stores({
-      notes: "id, updatedAt, syncStatus",
-      wrappedKeys: "id",
-      offlineSessions: "id",
+      notes: "id, syncStatus, updatedAt",
+      wrappedKey: "id",
+      offlineSession: "id",
     });
   }
 }
 
-export const localDb = new OfflinePwaDexie();
+export const localDB = new NotesDB();
