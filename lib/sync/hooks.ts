@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushPendingNotes } from "@/lib/sync/engine";
 
 export function useOnlineStatus(): boolean {
@@ -29,14 +29,17 @@ export function useSyncEngine(
   userId: string | null,
 ): void {
   const isOnline = useOnlineStatus();
+  const wasOnlineRef = useRef<boolean>(isOnline);
 
   useEffect(() => {
-    if (!isOnline || !key || !userId) {
-      return;
+    const becameOnline = !wasOnlineRef.current && isOnline;
+
+    if (becameOnline && key && userId) {
+      flushPendingNotes(key, userId).catch(() => {
+        // Sync failure must never crash the UI — discard silently.
+      });
     }
 
-    flushPendingNotes(key, userId).catch(() => {
-      // Sync failure must never crash the UI — discard silently.
-    });
+    wasOnlineRef.current = isOnline;
   }, [isOnline, key, userId]);
 }

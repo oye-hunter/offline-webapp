@@ -6,7 +6,7 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL_UNPOOLED is required for Drizzle config.");
 }
 
-export const drizzleConfig = defineConfig({
+export default defineConfig({
   dialect: "postgresql",
   schema: "./lib/schema/notes.ts",
   out: "./drizzle",
