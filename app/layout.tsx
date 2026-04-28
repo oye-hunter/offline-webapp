@@ -9,7 +9,7 @@ import { ReAuthBanner } from "@/components/ReAuthBanner";
 import { SyncStatusBadge } from "@/components/SyncStatusBadge";
 import { localDB } from "@/lib/db/dexie";
 import { base64ToSalt, deriveMasterKey } from "@/lib/crypto/pin";
-import { unwrapCryptoKey } from "@/lib/crypto/key";
+import { generateCryptoKey, unwrapCryptoKey } from "@/lib/crypto/key";
 import {
   cryptoKey,
   setCryptoKey,
@@ -24,7 +24,7 @@ import { useSyncEngine } from "@/lib/sync/hooks";
 
 // Inner component lives inside ClerkProvider so useAuth has a valid context.
 function LayoutInner({ children }: { children: React.ReactNode }) {
-  const { userId } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
   const [isLocked, setIsLocked] = useState<boolean>(true);
   const [attemptsRemaining, setAttemptsRemaining] = useState<number>(5);
   const [showReAuthBanner, setShowReAuthBanner] = useState<boolean>(false);
@@ -32,12 +32,25 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
   useSyncEngine(cryptoKey, userId ?? null);
 
+  // Unauthenticated users must be able to access Clerk auth routes.
+  useEffect(() => {
+    if (!isLoaded || isSignedIn) {
+      return;
+    }
+
+    clearCryptoKey();
+    setShowReAuthBanner(false);
+    setIsLocked(false);
+  }, [isLoaded, isSignedIn]);
+
   // Check if a wrapped key exists on mount to decide initial lock state.
   useEffect(() => {
     localDB.wrappedKey
       .get("wrapped-crypto-key")
-      .then((record) => {
+      .then(async (record) => {
         if (!record) {
+          const newKey = await generateCryptoKey();
+          setCryptoKey(newKey);
           setIsLocked(false);
         }
         setIsInitialized(true);
@@ -124,7 +137,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   return (
     <>
       <ReAuthBanner show={showReAuthBanner} />
-      {isInitialized && isLocked && (
+      {isInitialized && isSignedIn && isLocked && (
         <LockScreen
           onUnlock={handleUnlock}
           attemptsRemaining={attemptsRemaining}
