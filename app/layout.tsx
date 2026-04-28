@@ -144,6 +144,10 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en" className="h-full antialiased">
+        <head>
+          <link rel="manifest" href="/manifest.json" />
+          <meta name="theme-color" content="#000000" />
+        </head>
         <body className="flex min-h-full flex-col">
           <LayoutInner>{children}</LayoutInner>
         </body>
