@@ -9,7 +9,7 @@ export async function deriveMasterKey(
     pinBytes,
     "PBKDF2",
     false,
-    ["wrapKey", "unwrapKey", "deriveKey"],
+    ["deriveKey"],
   );
 
   return crypto.subtle.deriveKey(

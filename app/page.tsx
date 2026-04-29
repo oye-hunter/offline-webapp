@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 
 import { localDB } from "@/lib/db/dexie";
-import { cryptoKey } from "@/lib/auth/cryptoSession";
+import { getCryptoKey, subscribeToCryptoKey } from "@/lib/auth/cryptoSession";
 import { decryptField } from "@/lib/crypto/decrypt";
 import { encryptField } from "@/lib/crypto/encrypt";
 
@@ -16,17 +17,38 @@ type DecryptedNote = {
 };
 
 export default function HomePage() {
+  const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [notes, setNotes] = useState<DecryptedNote[]>([]);
   const [isReady, setIsReady] = useState<boolean>(false);
+  const [sessionCryptoKey, setSessionCryptoKey] = useState<CryptoKey | null>(
+    getCryptoKey(),
+  );
 
   useEffect(() => {
-    if (!cryptoKey) {
+    const unsubscribe = subscribeToCryptoKey(() => {
+      setSessionCryptoKey(getCryptoKey());
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    if (!isSignedIn) {
       setIsReady(true);
       return;
     }
 
-    const key = cryptoKey;
+    if (!sessionCryptoKey) {
+      setIsReady(true);
+      return;
+    }
+
+    const key = sessionCryptoKey;
 
     localDB.notes
       .orderBy("updatedAt")
@@ -46,14 +68,14 @@ export default function HomePage() {
       .catch(() => {
         setIsReady(true);
       });
-  }, []);
+  }, [isLoaded, isSignedIn, sessionCryptoKey]);
 
   async function handleNewNote() {
-    if (!cryptoKey) return;
+    if (!sessionCryptoKey) return;
 
     const id = crypto.randomUUID();
-    const encryptedTitle = await encryptField("", cryptoKey);
-    const encryptedContent = await encryptField("", cryptoKey);
+    const encryptedTitle = await encryptField("", sessionCryptoKey);
+    const encryptedContent = await encryptField("", sessionCryptoKey);
 
     await localDB.notes.put({
       id,
@@ -67,11 +89,27 @@ export default function HomePage() {
     router.push(`/notes/${id}`);
   }
 
-  if (!isReady) {
+  if (!isLoaded || !isReady) {
     return null;
   }
 
-  if (!cryptoKey) {
+  if (!isSignedIn) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <div className="text-center">
+          <p className="mb-3 text-sm text-gray-500">Sign in to access notes.</p>
+          <Link
+            href="/sign-in"
+            className="inline-block rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            Go to Sign In
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (!sessionCryptoKey) {
     return (
       <main className="flex min-h-screen items-center justify-center">
         <p className="text-sm text-gray-500">

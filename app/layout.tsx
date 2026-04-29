@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ClerkProvider, useAuth } from "@clerk/nextjs";
+import { usePathname, useRouter } from "next/navigation";
 import "./globals.css";
 
 import { LockScreen } from "@/components/LockScreen";
@@ -9,9 +10,10 @@ import { ReAuthBanner } from "@/components/ReAuthBanner";
 import { SyncStatusBadge } from "@/components/SyncStatusBadge";
 import { localDB } from "@/lib/db/dexie";
 import { base64ToSalt, deriveMasterKey } from "@/lib/crypto/pin";
-import { generateCryptoKey, unwrapCryptoKey } from "@/lib/crypto/key";
+import { unwrapCryptoKey } from "@/lib/crypto/key";
 import {
-  cryptoKey,
+  getCryptoKey,
+  subscribeToCryptoKey,
   setCryptoKey,
   clearCryptoKey,
 } from "@/lib/auth/cryptoSession";
@@ -22,15 +24,31 @@ import {
 } from "@/lib/auth/offlineSession";
 import { useSyncEngine } from "@/lib/sync/hooks";
 
+const ONBOARDING_PIN_PATH = "/onboarding/pin";
+
 // Inner component lives inside ClerkProvider so useAuth has a valid context.
 function LayoutInner({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, userId } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
   const [isLocked, setIsLocked] = useState<boolean>(true);
   const [attemptsRemaining, setAttemptsRemaining] = useState<number>(5);
   const [showReAuthBanner, setShowReAuthBanner] = useState<boolean>(false);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
+  const [hasWrappedKey, setHasWrappedKey] = useState<boolean>(false);
+  const [sessionCryptoKey, setSessionCryptoKey] = useState<CryptoKey | null>(
+    getCryptoKey(),
+  );
 
-  useSyncEngine(cryptoKey, userId ?? null);
+  useSyncEngine(sessionCryptoKey, userId ?? null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToCryptoKey(() => {
+      setSessionCryptoKey(getCryptoKey());
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Unauthenticated users must be able to access Clerk auth routes.
   useEffect(() => {
@@ -43,22 +61,54 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     setIsLocked(false);
   }, [isLoaded, isSignedIn]);
 
-  // Check if a wrapped key exists on mount to decide initial lock state.
+  // Check wrapped key status on mount and route changes.
   useEffect(() => {
+    let cancelled = false;
+
     localDB.wrappedKey
       .get("wrapped-crypto-key")
-      .then(async (record) => {
+      .then((record) => {
+        if (cancelled) {
+          return;
+        }
+
+        setHasWrappedKey(Boolean(record));
+
         if (!record) {
-          const newKey = await generateCryptoKey();
-          setCryptoKey(newKey);
+          clearCryptoKey();
+          setIsLocked(false);
+        } else if (getCryptoKey()) {
+          // If key is already available in memory, keep the session unlocked.
           setIsLocked(false);
         }
+
         setIsInitialized(true);
       })
       .catch(() => {
-        setIsInitialized(true);
+        if (!cancelled) {
+          setIsInitialized(true);
+        }
       });
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !isInitialized) {
+      return;
+    }
+
+    if (!hasWrappedKey && pathname !== ONBOARDING_PIN_PATH) {
+      router.replace(ONBOARDING_PIN_PATH);
+      return;
+    }
+
+    if (hasWrappedKey && pathname === ONBOARDING_PIN_PATH) {
+      router.replace("/");
+    }
+  }, [hasWrappedKey, isInitialized, isLoaded, isSignedIn, pathname, router]);
 
   // Idle lock: lock after 10 minutes of inactivity.
   useEffect(() => {
@@ -137,7 +187,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   return (
     <>
       <ReAuthBanner show={showReAuthBanner} />
-      {isInitialized && isSignedIn && isLocked && (
+      {isInitialized && isSignedIn && hasWrappedKey && isLocked && (
         <LockScreen
           onUnlock={handleUnlock}
           attemptsRemaining={attemptsRemaining}
